@@ -1,14 +1,15 @@
+import subprocess
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
-from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
+from playwright.sync_api import sync_playwright
 from pydantic import BaseModel
 
 app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], 
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -16,35 +17,34 @@ app.add_middleware(
 class CardRequest(BaseModel):
     rice_card_number: str
 
+@app.on_event("startup")
+def startup_event():
+    # Force install browsers on startup to prevent "Executable doesn't exist" errors
+    print("Ensuring browsers are installed...")
+    subprocess.run(["playwright", "install", "chromium"], check=True)
+
 @app.get("/", response_class=HTMLResponse)
 def serve_frontend():
-    try:
-        with open("index.html", "r", encoding="utf-8") as f:
-            return f.read()
-    except FileNotFoundError:
-        return "<h1>index.html not found.</h1>"
+    with open("index.html", "r", encoding="utf-8") as f:
+        return f.read()
 
 @app.post("/api/fetch-rice-card")
 def fetch_rice_card(req: CardRequest):
     with sync_playwright() as p:
-        # Launch browser with stealth arguments
+        # Added --no-sandbox, which is required for Railway/Docker
         browser = p.chromium.launch(
             headless=True,
-            args=["--disable-blink-features=AutomationControlled"]
+            args=["--disable-blink-features=AutomationControlled", "--no-sandbox"]
         )
         
         context = browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-            viewport={"width": 1920, "height": 1080}
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
         )
-        
         page = context.new_page()
         
-        # Manual Stealth Injection (Replaces the need for playwright-stealth library)
+        # Stealth injection
         page.add_init_script("""
             Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-            window.navigator.chrome = { runtime: {} };
-            Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
         """)
         
         try:
@@ -111,9 +111,8 @@ def fetch_rice_card(req: CardRequest):
                         "ekyc": cols[8].inner_text().strip()
                     })
             
-            browser.close()
-            return {"status": "success", "card_number": req.rice_card_number, "card_info": card_info, "family_members": members}
-            
+            return {"status": "success", "card_number": req.rice_card_number}
         except Exception as e:
             browser.close()
+            raise HTTPException(status_code=500, detail=str(e))
             raise HTTPException(status_code=500, detail=str(e))
