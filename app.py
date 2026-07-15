@@ -1,9 +1,9 @@
-import subprocess
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
-from playwright.sync_api import sync_playwright
 from pydantic import BaseModel
+import requests
+from bs4 import BeautifulSoup
 
 app = FastAPI()
 
@@ -17,102 +17,94 @@ app.add_middleware(
 class CardRequest(BaseModel):
     rice_card_number: str
 
-@app.on_event("startup")
-def startup_event():
-    # Force install browsers on startup to prevent "Executable doesn't exist" errors
-    print("Ensuring browsers are installed...")
-    subprocess.run(["playwright", "install", "chromium"], check=True)
-
 @app.get("/", response_class=HTMLResponse)
 def serve_frontend():
-    with open("index.html", "r", encoding="utf-8") as f:
-        return f.read()
+    try:
+        with open("index.html", "r", encoding="utf-8") as f:
+            return f.read()
+    except FileNotFoundError:
+        return "<h1>index.html not found.</h1>"
 
 @app.post("/api/fetch-rice-card")
 def fetch_rice_card(req: CardRequest):
-    with sync_playwright() as p:
-        # Added --no-sandbox, which is required for Railway/Docker
-        browser = p.chromium.launch(
-            headless=True,
-            args=["--disable-blink-features=AutomationControlled", "--no-sandbox"]
-        )
-        
-        context = browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-        )
-        page = context.new_page()
-        
-        # Stealth injection
-        page.add_init_script("""
-            Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-        """)
-        
-        try:
-            page.goto("https://epds.ap.gov.in/epdsAP/epds", timeout=60000)
-            page.wait_for_load_state("domcontentloaded")
-            
-            # Navigate Dashboard
-            try:
-                with context.expect_page(timeout=5000) as new_page_info:
-                    page.click("a[href*='EpdsDashBoard']")
-                page = new_page_info.value 
-            except PlaywrightTimeoutError:
-                pass 
-            
-            page.wait_for_load_state("domcontentloaded")
-            
-            # Navigate Search Screen
-            try:
-                with context.expect_page(timeout=5000) as new_page_info:
-                    page.evaluate("document.getElementById('Ricecard_Search_Screen_latest.epds').click()")
-                page = new_page_info.value  
-            except PlaywrightTimeoutError:
-                pass
-            
-            page.wait_for_load_state("domcontentloaded")
-            
-            # Enter Data
-            page.fill("input[id='rice_card_no']", req.rice_card_number, timeout=15000)
-            page.click("button:has-text('Submit'), input[type='submit'][value='Submit']")
-            
-            page.wait_for_selector("table", timeout=20000)
-            page.wait_for_timeout(2000)
-            
-            # Scrape Data
-            card_info = page.evaluate('''() => {
-                let data = { head_of_family: "N/A", shop_no: "N/A", house_no: "N/A", colony: "N/A", mandal: "N/A", district: "N/A", secretariat: "N/A" };
-                let tds = Array.from(document.querySelectorAll('td, th, span'));
-                for (let i = 0; i < tds.length; i++) {
-                    let text = tds[i].innerText.trim();
-                    let nextText = tds[i].nextElementSibling ? tds[i].nextElementSibling.innerText.trim() : "";
-                    if (text.includes("Name of Head Of Family")) data.head_of_family = text.includes(":") ? text.split(":")[1].trim() : nextText;
-                    if (text === "Shop No") data.shop_no = nextText;
-                    if (text === "House No") data.house_no = nextText;
-                    if (text === "Colony") data.colony = nextText;
-                    if (text === "Mandal") data.mandal = nextText;
-                    if (text === "District") data.district = nextText;
-                    if (text === "Secretariat Name") data.secretariat = nextText;
-                }
-                return data;
-            }''')
+    # Establish a persistent session to automatically handle session cookies
+    session = requests.Session()
+    
+    # Exact URL targets captured from the browser network analyzer
+    search_url = "https://epds.ap.gov.in/epdsAP/epds/Ricecard_Search_Screen_latest.epds"
+    
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:152.0) Gecko/20100101 Firefox/152.0",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Origin": "https://epds.ap.gov.in",
+        "Referer": "https://epds.ap.gov.in/epdsAP/epds/publicepdsDashBoard.epds"
+    }
 
-            members = []
-            rows = page.query_selector_all("table tr")
-            for row in rows:  
-                cols = row.query_selector_all("td")
-                if len(cols) >= 9:
-                    name = cols[0].inner_text().strip()
-                    if "Name" in name or name == "": continue
-                    members.append({
-                        "name": name, "gender": cols[1].inner_text().strip(),
-                        "age": cols[2].inner_text().strip(), "dob": cols[3].inner_text().strip(),
-                        "mother": cols[4].inner_text().strip(), "father": cols[5].inner_text().strip(),
-                        "spouse": cols[6].inner_text().strip(), "relation": cols[7].inner_text().strip(),
-                        "ekyc": cols[8].inner_text().strip()
-                    })
+    try:
+        # Step 1: Query the search endpoint directly with form data
+        # We supply the expected CSRF form parameter captured from the request parameters
+        payload = {
+            "csrfPreventionSalt": "",
+            "rice_card_no": req.rice_card_number
+        }
+        
+        response = session.post(search_url, data=payload, headers=headers, timeout=15)
+        
+        if response.status_code != 200:
+            raise HTTPException(status_code=500, detail=f"Portal rejected connection with status: {response.status_code}")
             
-            return {"status": "success", "card_number": req.rice_card_number}
-        except Exception as e:
-            browser.close()
-            raise HTTPException(status_code=500, detail=str(e))
-            raise HTTPException(status_code=500, detail=str(e))
+        # Step 2: Process returned raw HTML layout
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # Pull card structural definitions
+        card_info = {
+            "head_of_family": "N/A", "shop_no": "N/A", "house_no": "N/A",
+            "colony": "N/A", "mandal": "N/A", "district": "N/A", "secretariat": "N/A"
+        }
+        
+        tds = soup.find_all(['td', 'th', 'span'])
+        for i, td in enumerate(tds):
+            text = td.get_text().strip()
+            next_text = tds[i+1].get_text().strip() if i+1 < len(tds) else ""
+            
+            if "Name of Head Of Family" in text:
+                card_info["head_of_family"] = text.split(":")[-1].strip() if ":" in text else next_text
+            if "Shop No" in text: card_info["shop_no"] = next_text
+            if "House No" in text: card_info["house_no"] = next_text
+            if "Colony" in text: card_info["colony"] = next_text
+            if "Mandal" in text: card_info["mandal"] = next_text
+            if "District" in text: card_info["district"] = next_text
+            if "Secretariat Name" in text: card_info["secretariat"] = next_text
+
+        # Pull core family table structures
+        members = []
+        rows = soup.find_all('tr')
+        
+        for row in rows:
+            cols = row.find_all('td')
+            if len(cols) >= 5:
+                name = cols[0].get_text().strip()
+                if "Name" in name or name == "":
+                    continue
+                members.append({
+                    "name": name,
+                    "gender": cols[1].get_text().strip(),
+                    "age": cols[2].get_text().strip(),
+                    "dob": cols[3].get_text().strip(),
+                    "relation": cols[4].get_text().strip()
+                })
+                
+        if not members and "No Details Found" in response.text:
+            return {"status": "error", "message": "No matching record or active members found."}
+
+        return {
+            "status": "success",
+            "card_number": req.rice_card_number,
+            "card_info": card_info,
+            "family_members": members
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Network integration crashed: {str(e)}")
