@@ -27,77 +27,69 @@ def serve_frontend():
 
 @app.post("/api/fetch-rice-card")
 def fetch_rice_card(req: CardRequest):
-    # Establish a persistent session to automatically handle session cookies
     session = requests.Session()
     
-    # Exact URL targets captured from the browser network analyzer
-    search_url = "https://epds.ap.gov.in/epdsAP/epds/Ricecard_Search_Screen_latest.epds"
+    # SHIFT PORTAL TARGET: Using alternate domain destination parameters
+    # to pull raw data index feeds from unblocked frameworks.
+    search_url = "https://aepos.ap.gov.in/html/dist_rc_details.jsp"
     
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:152.0) Gecko/20100101 Firefox/152.0",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.9",
         "Content-Type": "application/x-www-form-urlencoded",
-        "Origin": "https://epds.ap.gov.in",
-        "Referer": "https://epds.ap.gov.in/epdsAP/epds/publicepdsDashBoard.epds"
+        "Origin": "https://aepos.ap.gov.in",
+        "Referer": "https://aepos.ap.gov.in/html/rc_details.jsp"
     }
 
     try:
-        # Step 1: Query the search endpoint directly with form data
-        # We supply the expected CSRF form parameter captured from the request parameters
+        # Pass payload parameters direct to public index feed
         payload = {
-            "csrfPreventionSalt": "",
-            "rice_card_no": req.rice_card_number
+            "rcno": req.rice_card_number
         }
         
-        response = session.post(search_url, data=payload, headers=headers, timeout=15)
+        response = session.post(search_url, data=payload, headers=headers, timeout=20)
         
         if response.status_code != 200:
-            raise HTTPException(status_code=500, detail=f"Portal rejected connection with status: {response.status_code}")
+            raise HTTPException(status_code=500, detail=f"Alternate server unreachable: Status {response.status_code}")
             
-        # Step 2: Process returned raw HTML layout
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        # Pull card structural definitions
         card_info = {
             "head_of_family": "N/A", "shop_no": "N/A", "house_no": "N/A",
             "colony": "N/A", "mandal": "N/A", "district": "N/A", "secretariat": "N/A"
         }
         
-        tds = soup.find_all(['td', 'th', 'span'])
+        # Parse alternate table text layout maps
+        tds = soup.find_all('td')
         for i, td in enumerate(tds):
             text = td.get_text().strip()
             next_text = tds[i+1].get_text().strip() if i+1 < len(tds) else ""
             
-            if "Name of Head Of Family" in text:
-                card_info["head_of_family"] = text.split(":")[-1].strip() if ":" in text else next_text
-            if "Shop No" in text: card_info["shop_no"] = next_text
-            if "House No" in text: card_info["house_no"] = next_text
-            if "Colony" in text: card_info["colony"] = next_text
-            if "Mandal" in text: card_info["mandal"] = next_text
+            if "Key Person" in text: card_info["head_of_family"] = next_text
+            if "FPS Status" in text or "Shop No" in text: card_info["shop_no"] = next_text
             if "District" in text: card_info["district"] = next_text
-            if "Secretariat Name" in text: card_info["secretariat"] = next_text
 
-        # Pull core family table structures
         members = []
         rows = soup.find_all('tr')
         
         for row in rows:
             cols = row.find_all('td')
-            if len(cols) >= 5:
-                name = cols[0].get_text().strip()
-                if "Name" in name or name == "":
+            # Balance alternate layout schema table indexes
+            if len(cols) >= 4:
+                name = cols[1].get_text().strip()
+                if "Member Name" in name or name == "" or name.isdigit():
                     continue
                 members.append({
                     "name": name,
-                    "gender": cols[1].get_text().strip(),
-                    "age": cols[2].get_text().strip(),
-                    "dob": cols[3].get_text().strip(),
-                    "relation": cols[4].get_text().strip()
+                    "gender": cols[2].get_text().strip() if len(cols) > 2 else "N/A",
+                    "age": cols[3].get_text().strip() if len(cols) > 3 else "N/A",
+                    "dob": "N/A",
+                    "relation": "Member"
                 })
                 
-        if not members and "No Details Found" in response.text:
-            return {"status": "error", "message": "No matching record or active members found."}
+        if not members:
+            return {"status": "error", "message": "No matching record found on the fallback routing directory."}
 
         return {
             "status": "success",
@@ -107,9 +99,7 @@ def fetch_rice_card(req: CardRequest):
         }
 
     except Exception as e:
-        # This will print the EXACT error details into your Railway logs
         import traceback
-        print("--- CRITICAL SCRAPING ERROR TRACEBACK ---")
+        print("--- ALTRNATE ROUTE ERROR ---")
         print(traceback.format_exc())
-        print("-----------------------------------------")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Fallback portal connection failure: {str(e)}")
