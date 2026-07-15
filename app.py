@@ -27,16 +27,13 @@ def serve_frontend():
 
 @app.post("/api/fetch-rice-card")
 def fetch_rice_card(req: CardRequest):
-    # Establish persistent session mapping
     session = requests.Session()
-    
-    # Target URL matched to the public query module layout
     search_url = "https://epds.ap.gov.in/epdsAP/epds/Ricecard_Search_Screen_latest.epds"
     
-    # Integrated operational proxy mapping parameters verified in the console check
+    # Updated proxies dictionary with your working free list details
     proxies = {
-        "http": "http://ukeshdlr:uglumxvbza5h@p.webshare.io:80/",
-        "https": "http://ukeshdlr:uglumxvbza5h@p.webshare.io:80/"
+        "http": "http://ukeshdlr:uglumxvbza5h@38.154.185.97:6370/",
+        "https": "http://ukeshdlr:uglumxvbza5h@38.154.185.97:6370/"
     }
     
     headers = {
@@ -49,13 +46,11 @@ def fetch_rice_card(req: CardRequest):
     }
 
     try:
-        # Construct exact parameters array mirroring inspector telemetry profiles
         payload = {
             "csrfPreventionSalt": "",
             "rice_card_no": req.rice_card_number
         }
         
-        # Fire structural streaming update through routing proxies
         response = session.post(search_url, data=payload, headers=headers, proxies=proxies, timeout=25)
         
         if response.status_code != 200:
@@ -63,7 +58,6 @@ def fetch_rice_card(req: CardRequest):
             
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        # Generate target extraction mapping keys
         card_info = {
             "head_of_family": "N/A", "shop_no": "N/A", "house_no": "N/A",
             "colony": "N/A", "mandal": "N/A", "district": "N/A", "secretariat": "N/A"
@@ -83,7 +77,6 @@ def fetch_rice_card(req: CardRequest):
             if "District" in text: card_info["district"] = next_text
             if "Secretariat Name" in text: card_info["secretariat"] = next_text
 
-        # Generate array list of family member records
         members = []
         rows = soup.find_all('tr')
         
