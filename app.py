@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
+from playwright_stealth import stealth_sync  # Add this import
 from pydantic import BaseModel
 
 app = FastAPI()
@@ -40,6 +41,7 @@ def fetch_rice_card(req: CardRequest):
         )
         
         page = context.new_page()
+        stealth_sync(page)
         
         # Delete the webdriver property so the site can't detect the bot
         page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
