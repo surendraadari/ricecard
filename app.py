@@ -107,4 +107,9 @@ def fetch_rice_card(req: CardRequest):
         }
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Network integration crashed: {str(e)}")
+        # This will print the EXACT error details into your Railway logs
+        import traceback
+        print("--- CRITICAL SCRAPING ERROR TRACEBACK ---")
+        print(traceback.format_exc())
+        print("-----------------------------------------")
+        raise HTTPException(status_code=500, detail=str(e))
