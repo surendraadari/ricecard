@@ -16,6 +16,14 @@ RUN apt-get update && apt-get install -y \
     libgbm1 \
     libasound2 \
     libglib2.0-0 \
+    libxfixes3 \
+    libx11-xcb1 \
+    libxcomposite1 \
+    libxcursor1 \
+    libxdamage1 \
+    libxext6 \
+    libxi6 \
+    libxtst6 \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
