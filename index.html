@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="te">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AP Rice Card Generator</title>
+    
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Telugu:wght@400;600;700;800&family=Roboto:wght@500;700;900&display=swap" rel="stylesheet">
+    
+    <!-- HTML to Image Converter -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    
+    <!-- QR Code Generator -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    
+    <style>
+        :root {
+            --govt-yellow: #f4e07a;
+            --govt-red: #c63348;
+            --govt-blue: #1c3580;
+            --text-dark: #111111;
+        }
+
+        body {
+            font-family: 'Roboto', sans-serif;
+            background-color: #e2e8f0;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        /* --- UI CONTROLS --- */
+        .controls {
+            background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            margin-bottom: 30px; display: flex; flex-wrap: wrap; gap: 10px; width: 100%; max-width: 856px;
+        }
+        .controls input[type="text"] { flex: 1; min-width: 200px; padding: 12px; font-size: 16px; border: 2px solid #cbd5e1; border-radius: 6px; font-weight: bold; }
+        .controls button { padding: 12px 20px; background: #2563eb; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 15px; transition: 0.2s;}
+        .controls button:hover { background: #1d4ed8; }
+        
+        .upload-btn { background: #8b5cf6 !important; }
+        .upload-btn:hover { background: #7c3aed !important; }
+        
+        .download-btn { background: #16a34a !important; display: none; }
+        .download-btn:hover { background: #15803d !important; }
+        
+        #loading { display: none; color: #2563eb; font-weight: bold; margin-bottom: 20px; font-size: 18px; }
+        #error-msg { display: none; color: #dc2626; font-weight: bold; margin-bottom: 20px; font-size: 18px; }
+
+        /* --- EXACT CARD STYLES --- */
+        .card-container { display: none; flex-direction: column; gap: 40px; margin-bottom: 50px; }
+        
+        .rice-card {
+            width: 856px; 
+            height: 540px; 
+            background: #ffffff;
+            border-radius: 15px;
+            overflow: hidden;
+            position: relative;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+            font-family: 'Noto Sans Telugu', sans-serif;
+            border: 1px solid #ccc;
+        }
+
+        /* Watermark securely placed behind everything */
+        .watermark {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 350px;
+            opacity: 0.12;
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        /* --- FRONT HEADER --- */
+        
+        .front-header {
+            background-color: var(--govt-yellow);
+            height: 140px;
+            display: flex;
+            justify-content: center; /* Centers logos and text horizontally */
+            align-items: center;     /* Centers vertically */
+            position: relative;
+            border-bottom: 6px solid var(--govt-red);
+            padding: 0 10px;
+        }
+
+        .logo-ap { position: absolute; left: 15px; width: 85px; z-index: 2; }
+        .logo-emblem { position: absolute; right: 15px; width: 70px; z-index: 2; }
+
+        .header-text { 
+            text-align: center; 
+            width: 60%; /* Gives the text a defined center lane */
+            z-index: 2;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+        
+        .header-text h2 { margin: 0; color: var(--govt-blue); font-size: 19px; font-weight: 800; white-space: nowrap; }
+        .header-text h3 { margin: 2px 0; color: var(--govt-red); font-size: 21px; font-weight: 800; white-space: nowrap; }
+        .header-text h4 { margin: 0; color: var(--text-dark); font-size: 12px; font-weight: 700; line-height: 1.1; }
+
+        .title-badge {
+            background: var(--govt-red); color: white; font-size: 26px; font-weight: 800;
+            text-align: center; padding: 4px 35px; border-radius: 30px;
+            width: fit-content; margin: -22px auto 15px auto; position: relative; z-index: 10;
+        }
+
+        /* --- FRONT BODY --- */
+        .front-body { display: flex; padding: 5px 40px; gap: 30px; position: relative; z-index: 5;}
+        
+        .details-col { flex: 1; display: flex; flex-direction: column; gap: 8px; }
+        .details-row { display: flex; align-items: flex-start; font-size: 21px; font-weight: 700; color: var(--text-dark); }
+        .label { width: 260px; font-weight: 700; }
+        .colon { width: 25px; text-align: center; }
+        .value { flex: 1; font-family: 'Roboto', 'Noto Sans Telugu', sans-serif; font-weight: 800; }
+
+        .media-col { width: 160px; display: flex; flex-direction: column; align-items: flex-end; gap: 15px; }
+        
+        /* PHOTO BOX */
+        .photo-box { 
+            width: 135px; height: 165px; background: #e5e7eb; border: 2px solid #9ca3af; 
+            display: flex; align-items: center; justify-content: center; overflow: hidden;
+            background-position: center; background-size: cover; background-repeat: no-repeat;
+        }
+        .photo-placeholder { color: #6b7280; font-size: 14px; text-align: center; }
+        
+        /* QR BOX */
+        .qr-box { width: 125px; height: 125px; background: white; border: 2px solid #9ca3af; padding: 5px; margin-right: 5px;}
+        .qr-box img { width: 100%; height: 100%; }
+
+        /* --- BACK CARD --- */
+        .back-header { background-color: var(--govt-red); color: white; text-align: center; padding: 12px; font-size: 32px; font-weight: 800; border-radius: 15px 15px 0 0; }
+        .table-wrap { padding: 25px 30px 10px 30px; height: 300px; position: relative; z-index: 5;}
+        table { width: 100%; border-collapse: collapse; text-align: center; border: 1px solid black; background: rgba(255,255,255,0.8); }
+        th, td { border: 1px solid black; padding: 10px 8px; font-size: 18px; font-weight: 700; color: var(--text-dark); }
+        th { font-size: 16px; font-weight: 800; padding: 12px 8px; line-height: 1.4; }
+
+        .back-footer { display: flex; justify-content: space-between; align-items: flex-end; padding: 0 30px 25px 30px; position: absolute; bottom: 0; width: 100%; box-sizing: border-box; z-index: 5;}
+        
+        .address-box { font-size: 20px; font-weight: 700; color: var(--text-dark); line-height: 1.5; width: 65%; }
+        .address-title { color: var(--govt-red); font-size: 24px; margin-bottom: 5px; display: block; }
+        
+        .helpline-box { text-align: center; display: flex; flex-direction: column; align-items: flex-end; }
+        .helpline-title { font-size: 22px; font-weight: 800; margin-bottom: 5px; font-family: 'Roboto', sans-serif; }
+        .helpline-number { background: #262c5b; color: white; font-size: 48px; font-weight: 900; padding: 2px 20px; border-radius: 4px; font-family: 'Roboto', sans-serif; }
+    </style>
+</head>
+<body>
+
+    <div class="controls">
+        <input type="text" id="cardNum" placeholder="Enter Rice Card No (e.g., 2814818683)" />
+        <button onclick="fetchCardData()">Fetch Details</button>
+        
+        <input type="file" id="photoInput" accept="image/*" style="display: none;" onchange="loadPhoto(event)">
+        <button class="upload-btn" onclick="document.getElementById('photoInput').click()">📸 Upload Photo</button>
+        
+        <button class="download-btn" id="dlFrontBtn" onclick="downloadImage('front-card', 'RiceCard_Front.jpg')">⬇️ Download Front</button>
+        <button class="download-btn" id="dlBackBtn" onclick="downloadImage('back-card', 'RiceCard_Back.jpg')">⬇️ Download Back</button>
+    </div>
+
+    <div id="loading">Connecting to EPDS Portal & Scraping Details... Please wait.</div>
+    <div id="error-msg"></div>
+
+    <div class="card-container" id="cardContainer">
+        
+        <!-- FRONT OF CARD -->
+        <div class="rice-card" id="front-card">
+            
+            <!-- Local Watermark -->
+            <img src="watermark.png" class="watermark" alt="">
+            
+            <div class="front-header">
+                <!-- Local AP Logo -->
+                <img src="ap_logo.png" class="logo-ap" alt="AP Logo">
+                
+                <div class="header-text">
+                    <h2>Government of Andhra Pradesh / ఆంధ్రప్రదేశ్ ప్రభుత్వం</h2>
+                    <h3>Consumer Affairs, Food & Civil Supplies Department</h3>
+                    <h4>వినియోగదారుల వ్యవహారాలు, ఆహార మరియు పౌరసరఫరాల శాఖ<br>National Food Security Act, 2013 / జాతీయ ఆహార భద్రతా చట్టం, 2013</h4>
+                </div>
+                
+                <!-- Local Emblem -->
+                <img src="emblem.png" class="logo-emblem" alt="Emblem">
+            </div>
+            
+            <div class="title-badge">RICE CARD / రైస్ కార్డు</div>
+            
+            <div class="front-body">
+                <div class="details-col">
+                    <div class="details-row"><div class="label">బియ్యం కార్డు రకం</div><div class="colon">:</div><div class="value">STATE/SPHH</div></div>
+                    <div class="details-row"><div class="label">బియ్యం కార్డు నెం.</div><div class="colon">:</div><div class="value" id="f-card-no"></div></div>
+                    <div class="details-row"><div class="label">కుటుంబ పెద్ద పేరు</div><div class="colon">:</div><div class="value" id="f-hof"></div></div>
+                    <div class="details-row"><div class="label">పుట్టిన తేదీ/వయస్సు</div><div class="colon">:</div><div class="value" id="f-dob-age"></div></div>
+                    <div class="details-row"><div class="label">కుటుంబ పెద్ద లింగం</div><div class="colon">:</div><div class="value" id="f-gender"></div></div>
+                    <div class="details-row"><div class="label">కుటుంబ సభ్యులు</div><div class="colon">:</div><div class="value" id="f-members"></div></div>
+                    <div class="details-row"><div class="label">దుకాణం ఐడి</div><div class="colon">:</div><div class="value" id="f-shop"></div></div>
+                    <div class="details-row"><div class="label">దుకాణం చిరునామా</div><div class="colon">:</div><div class="value" id="f-address"></div></div>
+                </div>
+                
+                <div class="media-col">
+                    <div class="photo-box" id="photoDisplay">
+                        <span class="photo-placeholder" id="photoPlaceholder">No Photo<br>Uploaded</span>
+                    </div>
+                    <!-- QR Box generated automatically -->
+                    <div class="qr-box" id="qrcode"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- BACK OF CARD -->
+        <div class="rice-card" id="back-card">
+            
+            <!-- Local Watermark -->
+            <img src="watermark.png" class="watermark" alt="">
+
+            <div class="back-header">కుటుంబ సభ్యుల వివరాలు</div>
+            
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>సంఖ్య</th>
+                            <th>సభ్యుని పేరు</th>
+                            <th>పుట్టిన తేదీ/వయస్సు</th>
+                            <th>లింగము</th>
+                            <th>కుటుంబ పెద్దతో<br>సంబంధము</th>
+                        </tr>
+                    </thead>
+                    <tbody id="b-table-body">
+                        <!-- Data inserted here -->
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="back-footer">
+                <div class="address-box">
+                    <span class="address-title">చిరునామా :</span>
+                    <span id="b-colony-details"></span>
+                </div>
+                
+                <div class="helpline-box">
+                    <div class="helpline-title">Toll Free Helpline</div>
+                    <div class="helpline-number">✆ 1967</div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // Photo Upload Handling
+        function loadPhoto(event) {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const display = document.getElementById('photoDisplay');
+                    display.style.backgroundImage = `url(${e.target.result})`;
+                    document.getElementById('photoPlaceholder').style.display = 'none';
+                }
+                reader.readAsDataURL(file);
+            }
+        }
+
+        // DATE FORMATTING FUNCTION: Converts YYYY-MM-DD to DD-MM-YYYY
+        function formatIndianDate(dateStr) {
+            if (!dateStr || !dateStr.includes('-')) return dateStr;
+            const parts = dateStr.split('-');
+            if (parts.length === 3) {
+                // Year is parts[0], Month is parts[1], Day is parts[2]
+                return `${parts[2]}-${parts[1]}-${parts[0]}`;
+            }
+            return dateStr;
+        }
+
+        async function fetchCardData() {
+            const cardNum = document.getElementById('cardNum').value.trim();
+            const loading = document.getElementById('loading');
+            const errorMsg = document.getElementById('error-msg');
+            const container = document.getElementById('cardContainer');
+            
+            if(!cardNum) { alert("Please enter a Card Number!"); return; }
+            
+            loading.style.display = 'block';
+            errorMsg.style.display = 'none';
+            container.style.display = 'none';
+
+            try {
+                const response = await fetch('/api/fetch-rice-card', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ rice_card_number: cardNum })
+                });
+                
+                const data = await response.json();
+                loading.style.display = 'none';
+
+                if(data.status === "success" && data.family_members.length > 0) {
+                    const info = data.card_info;
+                    const members = data.family_members;
+                    
+                    let hof = members.find(m => m.relation.toUpperCase() === 'SELF' || m.name.includes(info.head_of_family));
+                    if(!hof) hof = members[0]; 
+
+                    // FRONT CARD INJECTIONS
+                    document.getElementById('f-card-no').innerText = data.card_number;
+                    document.getElementById('f-hof').innerText = info.head_of_family;
+                    
+                    // Apply Date Formatter to Head of Family
+                    let formattedHofDob = formatIndianDate(hof.dob);
+                    document.getElementById('f-dob-age').innerText = `${formattedHofDob} / ${hof.age} సం.`;
+                    
+                    let genderFormat = hof.gender.toUpperCase() === 'FEMALE' ? 'Female/ ఆడ' : 'Male/ మగ';
+                    document.getElementById('f-gender').innerText = genderFormat;
+                    
+                    document.getElementById('f-members').innerText = members.length;
+                    document.getElementById('f-shop').innerText = info.shop_no;
+                    document.getElementById('f-address').innerText = info.secretariat || info.mandal;
+
+                    // DYNAMIC QR CODE INJECTION 
+                    document.getElementById("qrcode").innerHTML = ""; 
+                    const qrUrl = `https://aepos.ap.gov.in/smartepos/Qcodesearch.jsp?rcno=${data.card_number}`; 
+                    new QRCode(document.getElementById("qrcode"), {
+                        text: qrUrl,
+                        width: 115,
+                        height: 115,
+                        colorDark : "#000000",
+                        colorLight : "#ffffff",
+                        correctLevel : QRCode.CorrectLevel.M
+                    });
+
+                    // BACK CARD TABLE
+                    let tbody = '';
+                    for(let i=0; i<4; i++) {
+                        let m = members[i];
+                        if(m) {
+                            // Apply Date Formatter to each family member
+                            let formattedMemberDob = formatIndianDate(m.dob);
+                            tbody += `<tr>
+                                <td>0${i + 1}</td>
+                                <td>${m.name}</td>
+                                <td>${formattedMemberDob} / ${m.age}</td>
+                                <td>${m.gender.charAt(0)}</td>
+                                <td>${m.relation}</td>
+                            </tr>`;
+                        } else {
+                            tbody += `<tr><td>0${i + 1}</td><td></td><td></td><td></td><td></td></tr>`;
+                        }
+                    }
+                    document.getElementById('b-table-body').innerHTML = tbody;
+
+                    // BACK CARD ADDRESS
+                    const fullAddress = `${info.house_no}, ${info.colony},<br>${info.mandal}, ${info.district}`;
+                    document.getElementById('b-colony-details').innerHTML = fullAddress;
+
+                    // SHOW ALL
+                    container.style.display = 'flex';
+                    document.getElementById('dlFrontBtn').style.display = 'block';
+                    document.getElementById('dlBackBtn').style.display = 'block';
+
+                } else {
+                    errorMsg.innerText = "Error: No members found.";
+                    errorMsg.style.display = 'block';
+                }
+            } catch (err) {
+                loading.style.display = 'none';
+                errorMsg.innerText = "Connection Error. Make sure the Python backend is running.";
+                errorMsg.style.display = 'block';
+            }
+        }
+
+        // DOWNLOAD LOGIC
+        function downloadImage(elementId, filename) {
+            const element = document.getElementById(elementId);
+            
+            html2canvas(element, { scale: 2, useCORS: true, allowTaint: true }).then(canvas => {
+                const link = document.createElement('a');
+                link.download = filename;
+                link.href = canvas.toDataURL('image/jpeg', 1.0);
+                link.click();
+            }).catch(err => {
+                alert("Error downloading image.");
+            });
+        }
+    </script>
+</body>
+</html>
